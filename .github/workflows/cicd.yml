@@ -30,21 +30,31 @@ jobs:
           pytest tests/ -v
         continue-on-error: false
 
-      - name: Deploy to Touge Server via SSH (Port 51595)
+      - name: Deploy to Touge Server (Port 51595)
         run: |
           mkdir -p ~/.ssh
           printf "%s\n" "${{ secrets.TOUGE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p 51595 -H ${{ secrets.TOUGE_SERVER_IP }} >> ~/.ssh/known_hosts
-          echo "SSH环境配置完成，尝试连接服务器..."
-          ssh -v -p 51595 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@${{ secrets.TOUGE_SERVER_IP }} << 'EOF'
+
+          echo "=== 1. 上传代码到服务器 ==="
+          ssh -p 51595 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@${{ secrets.TOUGE_SERVER_IP }} "mkdir -p /root/flask-web-app/src /root/flask-web-app/tests"
+          scp -P 51595 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+            src/app.py src/__init__.py \
+            root@${{ secrets.TOUGE_SERVER_IP }}:/root/flask-web-app/src/
+          scp -P 51595 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+            tests/test_app.py \
+            root@${{ secrets.TOUGE_SERVER_IP }}:/root/flask-web-app/tests/
+          scp -P 51595 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+            requirements.txt \
+            root@${{ secrets.TOUGE_SERVER_IP }}:/root/flask-web-app/
+
+          echo "=== 2. 安装依赖并重启 ==="
+          ssh -p 51595 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa root@${{ secrets.TOUGE_SERVER_IP }} << 'EOF'
             set -e
-            echo "成功连接服务器：$(whoami)@$(hostname)"
-            cd /root/flask-web-app || { echo "项目目录不存在"; exit 1; }
-            git pull origin main || { echo "Git拉取失败"; exit 1; }
-            pip3 install --upgrade pip
-            pip3 install -r requirements.txt || { echo "依赖安装失败"; exit 1; }
-            supervisorctl restart flask-web-app || { echo "应用重启失败"; exit 1; }
+            cd /root/flask-web-app
+            pip3 install -r requirements.txt -q
+            supervisorctl restart flask-web-app
             supervisorctl status flask-web-app
             echo "部署完成"
           EOF
